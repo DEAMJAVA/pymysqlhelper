@@ -47,8 +47,9 @@ db.define_table(
     email=Text,
 )
 
-db.insert("users", id=1, name="Alice", email="alice@example.com").execute()
+db.insert("users", id=1, name="Alice", email="alice@example.com")
 db.insert("users", id=1, name="Alice Updated", email="alice@example.com").replace()
+db.insert("users", id=1, name="Alice", email="alice@example.com").ignore()
 
 user = db.get("users", id=1)
 print(user)

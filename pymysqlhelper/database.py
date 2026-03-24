@@ -1,10 +1,3 @@
-"""
-database.py — A unified SQLAlchemy wrapper for SQLite (LocalDatabase) and MySQL (Database).
-
-Both classes expose an identical public API. The only differences are internal
-(SQLite vs MySQL dialect handling) and are abstracted away from the caller.
-"""
-
 import re
 from decimal import Decimal
 from urllib.parse import quote_plus
@@ -12,7 +5,7 @@ from urllib.parse import quote_plus
 from sqlalchemy import (
     BigInteger, Boolean, Column, Date, DateTime, DECIMAL, Float, ForeignKey,
     Integer, LargeBinary, MetaData, SmallInteger, String, Table, Text, Time,
-    create_engine, event, func, select, text, JSON
+    create_engine, event, func, select, text,
 )
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 
@@ -149,37 +142,45 @@ class InsertBuilder:
     """
     Fluent builder for INSERT statements.
 
-    Usage::
+    Bare ``db.insert()`` executes immediately as a plain INSERT::
 
-        db.insert("users", id=1, name="Alice")           # plain INSERT
+        db.insert("users", id=1, name="Alice")           # executes immediately
+
+    Chain ``.ignore()`` or ``.replace()`` to handle conflicts instead.
+    These re-run the statement with the appropriate conflict strategy::
+
         db.insert("users", id=1, name="Alice").ignore()  # INSERT OR IGNORE
-        db.insert("users", id=1, name="Alice").replace() # INSERT OR REPLACE / ON DUPLICATE KEY UPDATE
-
-    The insert is *not* executed until you call one of the above terminal
-    methods (or the plain `execute()` method).  There is no background thread.
+        db.insert("users", id=1, name="Alice").replace() # upsert
     """
 
     def __init__(self, db, table: str, data: dict):
         self.db = db
         self.table = table
         self.data = data
-        self._executed = False
-
-    # ------------------------------------------------------------------
-    # Public terminal methods
-    # ------------------------------------------------------------------
-
-    def execute(self) -> "InsertBuilder":
-        """Plain INSERT – raises on duplicate key."""
-        return self._run(conflict="error")
+        self.db.ensure_table_exists(self.table)
+        self._data = self._sanitize(data)
+        # Track whether the initial plain insert succeeded or hit a conflict
+        self._initial_ok = False
+        try:
+            self._run(conflict="error")
+            self._initial_ok = True
+        except Exception:
+            # Swallow here — .ignore() or .replace() must be chained to handle it
+            pass
 
     def ignore(self) -> "InsertBuilder":
-        """INSERT that silently ignores duplicate-key conflicts."""
-        return self._run(conflict="ignore")
+        """If the initial insert failed due to a conflict, silently ignore it.
+        If the initial insert already succeeded, this is a no-op."""
+        if not self._initial_ok:
+            self._run(conflict="ignore")
+        return self
 
     def replace(self) -> "InsertBuilder":
-        """INSERT that overwrites existing rows on duplicate-key conflicts."""
-        return self._run(conflict="replace")
+        """If the initial insert failed due to a conflict, overwrite the row.
+        If the initial insert already succeeded, this is a no-op."""
+        if not self._initial_ok:
+            self._run(conflict="replace")
+        return self
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -189,17 +190,13 @@ class InsertBuilder:
         return {k: float(v) if isinstance(v, Decimal) else v for k, v in params.items()}
 
     def _run(self, conflict: str) -> "InsertBuilder":
-        if self._executed:
-            raise RuntimeError("This InsertBuilder has already been executed.")
-        self._executed = True
-
-        self.db.ensure_table_exists(self.table)
-        data = self._sanitize(self.data)
+        data = self._data
+        tbl = self.db.tables[self.table]
         dialect = self.db.engine.dialect.name
 
         with self.db.engine.connect() as conn:
             if dialect == "sqlite":
-                stmt = self.db.tables[self.table].insert().values(**data)
+                stmt = tbl.insert().values(**data)
                 if conflict == "ignore":
                     stmt = stmt.prefix_with("OR IGNORE")
                 elif conflict == "replace":
@@ -208,21 +205,19 @@ class InsertBuilder:
 
             elif dialect == "mysql":
                 if conflict == "error":
-                    stmt = self.db.tables[self.table].insert().values(**data)
+                    stmt = tbl.insert().values(**data)
                     conn.execute(stmt)
                 elif conflict == "ignore":
-                    stmt = self.db.tables[self.table].insert().prefix_with("IGNORE").values(**data)
+                    stmt = tbl.insert().prefix_with("IGNORE").values(**data)
                     conn.execute(stmt)
                 elif conflict == "replace":
-                    # Exclude primary key columns from the UPDATE clause
-                    pk_cols = {c.name for c in self.db.tables[self.table].primary_key}
+                    pk_cols = {c.name for c in tbl.primary_key}
                     update_data = {k: v for k, v in data.items() if k not in pk_cols}
                     if update_data:
-                        stmt = mysql_insert(self.db.tables[self.table]).values(**data)
+                        stmt = mysql_insert(tbl).values(**data)
                         stmt = stmt.on_duplicate_key_update(**update_data)
                     else:
-                        # Table is PK-only; treat as ignore
-                        stmt = self.db.tables[self.table].insert().prefix_with("IGNORE").values(**data)
+                        stmt = tbl.insert().prefix_with("IGNORE").values(**data)
                     conn.execute(stmt)
 
             conn.commit()
