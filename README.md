@@ -65,7 +65,7 @@ from pymysqlhelper import Database
 db = Database("root", "secret", "localhost", 3306, "myapp")
 
 db.define_table("users", id=Integer, name=String(100), email=Text)
-db.insert("users", id=1, name="Alice", email="alice@example.com").execute()
+db.insert("users", id=1, name="Alice", email="alice@example.com")
 ```
 
 ---
@@ -126,7 +126,7 @@ db.define_table(
 ## Inserting Data
 
 ```python
-db.insert("users", id=1, name="Alice").execute()
+db.insert("users", id=1, name="Alice")
 db.insert("users", id=1, name="Alice").ignore()
 db.insert("users", id=1, name="Bob").replace()
 ```

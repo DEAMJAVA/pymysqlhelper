@@ -5,7 +5,7 @@ from urllib.parse import quote_plus
 from sqlalchemy import (
     BigInteger, Boolean, Column, Date, DateTime, DECIMAL, Float, ForeignKey,
     Integer, LargeBinary, MetaData, SmallInteger, String, Table, Text, Time,
-    create_engine, event, func, select, text,
+    create_engine, event, func, select, text, JSON
 )
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 
