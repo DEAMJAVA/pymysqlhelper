@@ -3,3 +3,4 @@ local.db
 setup.py
 tests.py
 .env
+.idea
