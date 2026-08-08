@@ -12,7 +12,8 @@ from .database import(  Database,
                         LocalDatabase,
                         BigInteger,
                         JSON,
-                        DECIMAL
+                        DECIMAL,
+                        _validate_identifier
                        )
 
 __all__ = [
@@ -30,7 +31,8 @@ __all__ = [
     "LocalDatabase",
     "BigInteger",
     "JSON",
-    "DECIMAL"
+    "DECIMAL",
+    "_validate_identifier"
 ]
 
 def pymysqlhelper_check():
